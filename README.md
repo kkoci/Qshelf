@@ -13,6 +13,7 @@ This repo is a first step toward that ecosystem: a home for well-tested, documen
 - **[`packages/qft`](packages/qft/)** -- Quantum Fourier Transform and inverse-QFT. See its [README](packages/qft/README.md) for the API, and its [tests](packages/qft/tests/test_correctness.py) for how correctness is verified (against `numpy.fft`-derived reference matrices, run on Selene's statevector emulator).
 - **[`packages/grover`](packages/grover/)** -- Grover's search algorithm (oracle-based amplitude amplification) on a 3-qubit, 1-marked-item register. See its [README](packages/grover/README.md) for the API, and its [tests](packages/grover/tests/test_correctness.py) for how correctness is verified (against the closed-form amplitude-amplification formula, run on Selene's statevector emulator).
 - **[`packages/qaoa`](packages/qaoa/)** -- QAOA for MaxCut on a 5-node cycle graph, with a real classical-quantum optimization loop (`scipy.optimize` driving repeated circuit compiles + real shot sampling). See its [README](packages/qaoa/README.md) for the API, and its [tests](packages/qaoa/tests/test_correctness.py) for how correctness is verified (against an exact `scipy.linalg.expm` reference, and against the measured cut distribution actually improving as the circuit gets more layers).
+- **[`packages/vqe_h2`](packages/vqe_h2/)** -- VQE for the H2 molecule ground-state energy (4-qubit, Jordan-Wigner-mapped, STO-3G Hamiltonian cited from the literature), with a real classical-quantum optimization loop. See its [README](packages/vqe_h2/README.md) for the API and citations, and its [tests](packages/vqe_h2/tests/test_correctness.py) for how correctness is verified -- this package's rigor bar is higher than the others' (VQE/chemistry is Quantinuum's own flagship application area): every numeric claim is checked against an independent, from-scratch numpy reference, not just the guppy code's own internal consistency.
 
 More packages are planned -- see [CLAUDE.md](CLAUDE.md) for the current list and rationale.
 
@@ -29,12 +30,13 @@ guppy-registry/
       README.md
     grover/           same layout as qft/
     qaoa/             same layout as qft/
+    vqe_h2/           same layout as qft/
     <future packages follow the same layout>
   README.md           this file
   CLAUDE.md            versions pinned, gotchas hit, testing methodology, roadmap
 ```
 
-Each package under `packages/` is independent: its own `pyproject.toml`, its own tests, its own README. There's no shared root package -- `packages/qft`, `packages/grover`, `packages/qaoa` (and future packages) are meant to be installed and consumed individually.
+Each package under `packages/` is independent: its own `pyproject.toml`, its own tests, its own README. There's no shared root package -- `packages/qft`, `packages/grover`, `packages/qaoa`, `packages/vqe_h2` (and future packages) are meant to be installed and consumed individually.
 
 ## Install and use a package
 
@@ -50,9 +52,9 @@ then, from your own guppy code:
 from qft import qft, iqft
 ```
 
-Same pattern for `grover`: `pip install -e path/to/guppy-registry/packages/grover`, then `from grover import grover_search, oracle, diffuser`. And for `qaoa`: `pip install -e path/to/guppy-registry/packages/qaoa`, then `from qaoa import optimize_qaoa, run_qaoa`.
+Same pattern for `grover`: `pip install -e path/to/guppy-registry/packages/grover`, then `from grover import grover_search, oracle, diffuser`. And for `qaoa`: `pip install -e path/to/guppy-registry/packages/qaoa`, then `from qaoa import optimize_qaoa, run_qaoa`. And for `vqe_h2`: `pip install -e path/to/guppy-registry/packages/vqe_h2`, then `from vqe_h2 import optimize_vqe, estimate_energy`.
 
-See [`packages/qft/README.md`](packages/qft/README.md), [`packages/grover/README.md`](packages/grover/README.md), or [`packages/qaoa/README.md`](packages/qaoa/README.md) for the full API of each, and for how to link the precompiled `.hugr` package instead of depending on this repo's Python source.
+See [`packages/qft/README.md`](packages/qft/README.md), [`packages/grover/README.md`](packages/grover/README.md), [`packages/qaoa/README.md`](packages/qaoa/README.md), or [`packages/vqe_h2/README.md`](packages/vqe_h2/README.md) for the full API of each, and for how to link the precompiled `.hugr` package instead of depending on this repo's Python source.
 
 ## Development setup
 
@@ -64,6 +66,7 @@ python -m venv .venv
 pip install -e "packages/qft[test]"
 pip install -e "packages/grover[test]"
 pip install -e "packages/qaoa[test]"
+pip install -e "packages/vqe_h2[test]"
 ```
 
 ## Run the tests
@@ -72,6 +75,7 @@ pip install -e "packages/qaoa[test]"
 pytest packages/qft/tests -v
 pytest packages/grover/tests -v
 pytest packages/qaoa/tests -v
+pytest packages/vqe_h2/tests -v
 ```
 
-Tests compile and run real guppy circuits against Selene's Quest (statevector) emulator and check the results against independently-computed reference values (see [CLAUDE.md](CLAUDE.md) for the full methodology, including why some `qft` tests deliberately run in subprocesses). Expect ~1-2 minutes per package (`qaoa` a bit longer -- its test suite includes a live classical optimization loop, not just circuit checks) -- each test case compiles and emulates a small quantum circuit.
+Tests compile and run real guppy circuits against Selene's Quest (statevector) emulator and check the results against independently-computed reference values (see [CLAUDE.md](CLAUDE.md) for the full methodology, including why some `qft` tests deliberately run in subprocesses). Expect ~1-2 minutes per package for `qft`/`grover`, a bit longer for `qaoa`, and longer still for `vqe_h2` (several live optimization-loop tests, and by far the highest circuit-compile volume in this registry -- see its README and CLAUDE.md if tests there flake with an `Application Control policy` `OSError`, an environmental issue unrelated to correctness).
