@@ -1,17 +1,13 @@
 """Standalone runner for a single QFT/IQFT correctness case.
 
-Run in its own Python process (see test_correctness.py) for two reasons, both
-confirmed guppylang 1.0.2 quirks documented in ../../../CLAUDE.md:
-
-1. Monomorphizing the same `@guppy.comptime` generic function (here `qft`/
-   `iqft`, generic over the register size `n`) for more than one value of `n`
-   within a single process silently corrupts results for all but the first
-   monomorphization.
-2. `iqft` compiled and run *alone* (with no call to `qft` anywhere in the same
-   program) produces a different -- wrong -- unitary than the exact same
-   `iqft` compiled and run immediately alongside a `qft` call on the same
-   register, which is exact. See CLAUDE.md for the full repro; test_iqft_alone
-   in test_correctness.py is kept (marked xfail) specifically to document this.
+Run in its own Python process (see test_correctness.py): guppylang 1.0.2 has a
+confirmed bug where `iqft` compiled and run *alone* (no call to `qft` anywhere
+in the same program) produces a different -- wrong -- unitary than the exact
+same `iqft` compiled and run alongside a `qft` call on the same register
+(which is exact), and this can non-deterministically corrupt other, unrelated
+compilations sharing the same process. See CLAUDE.md gotcha #5 for the full
+writeup; test_iqft_in_isolation_matches_numpy_fft in test_correctness.py is
+kept (marked xfail) specifically to document this.
 
 Prints the resulting 2**n x 2**n matrix as JSON: {"real": [[...]], "imag": [[...]]}
 """

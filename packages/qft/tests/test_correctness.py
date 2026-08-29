@@ -20,35 +20,34 @@ For each register size n we:
      directions), rather than against an absolute reference matrix -- see the
      "iqft in isolation" note below for why.
 
-Why subprocesses (important gotcha #1, see CLAUDE.md for the full repro)
+Why subprocesses, and why iqft is verified by round trip, not by reference
+matrix (important gotcha, see CLAUDE.md gotcha #5 for the full writeup)
 --------------------------------------------------------------------------
-guppylang 1.0.2 has a confirmed bug: monomorphizing the same `@guppy.comptime`
-generic function (here `qft`/`iqft`) for more than one value of its nat type
-parameter `n` within a single Python process silently corrupts the results for
-every monomorphization after the first. The circuit still compiles, runs, and
-reports a *unitary* matrix -- it's just the wrong unitary. Each test case below
-is therefore run in its own subprocess (`_case_runner.py`), which sidesteps the
-bug and is also a more faithful "does this actually work end to end" check than
-importing guppy definitions into a shared pytest process.
+guppylang 1.0.2 has a confirmed bug: `iqft` compiled and run in a program with
+no call to `qft` anywhere in it (e.g. a test sweeping `iqft` alone over several
+values of n) produces a matrix that does NOT match the exact inverse-QFT
+unitary -- yet the exact same `iqft`, compiled in a program that also calls
+`qft` on the *same register* (either order), reproduces it exactly and
+round-trips `qft` to machine precision. This does not depend on whether the
+driver is `@guppy` or `@guppy.comptime`, and a throwaway `qft` call on an
+*unrelated* register does not fix it. Worse, once triggered (e.g. by a test
+file that exercises `iqft` alone anywhere in it), the corruption is
+non-deterministic and can leak into *other*, seemingly-unrelated compilations
+in the same process -- we observed a `qft`-only n-sweep (no `iqft` involved)
+fail intermittently when `iqft`-only tests were also present in the same
+pytest file, while the identical `qft`-only sweep passed 3/3 times in
+isolation. We were unable to isolate a smaller repro or find the root cause.
 
-iqft in isolation (important gotcha #2, see CLAUDE.md for the full repro)
------------------------------------------------------------------------------
-Even with subprocess isolation, `iqft` run *by itself* (no call to `qft`
-anywhere in the same compiled program) produces a matrix that does NOT match
-the exact inverse-QFT unitary -- yet the exact same `iqft`, compiled in a
-program that also calls `qft` on the same register (in either order, and even
-via a throwaway/unrelated `qft` call), reproduces it exactly, and round-trips
-`qft` to machine precision. This looks like a genuine guppylang/Selene
-compilation quirk affecting a comptime-generic function used *only* via
-composition with another comptime-generic function of the same underlying
-definition. We were unable to isolate a smaller repro. Consequently:
-  - `test_qft_matches_numpy_ifft` is the absolute-reference test (reliable).
-  - `iqft` is verified via round trips against `qft` (reliable, and arguably
-    the more meaningful property for a package function that in practice is
-    almost always used alongside a matching `qft` call, e.g. in phase
-    estimation).
-  - `test_iqft_in_isolation_matches_numpy_fft` is kept and marked `xfail` to
-    document the quirk rather than silently drop coverage.
+Consequently, every test case below runs in its own subprocess
+(`_case_runner.py`), which sidesteps the cross-contamination entirely
+regardless of its exact trigger, and is also a more faithful "does this
+actually work end to end" check than importing guppy definitions into a shared
+pytest process. And `iqft`'s correctness is verified via round trips against
+`qft` (reliable, and arguably the more meaningful property for a package
+function that in practice is almost always used alongside a matching `qft`
+call, e.g. in phase estimation) rather than against an absolute reference
+matrix in isolation; `test_iqft_in_isolation_matches_numpy_fft` is kept and
+marked `xfail` to document the quirk rather than silently drop coverage.
 """
 
 import json
