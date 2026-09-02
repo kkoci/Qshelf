@@ -11,7 +11,7 @@ P(marked) rising from the classical baseline 1/8 = 0.125 to ~0.945.
 """
 
 import numpy as np
-from guppylang import guppy
+from guppylang import guppy, OptimizationLevel
 from guppylang.std.builtins import array
 from guppylang.std.debug import state_output
 from guppylang.std.quantum import discard_array, qubit
@@ -34,7 +34,12 @@ def main() -> None:
 def run() -> None:
     main.check()
     shots = (
-        main.with_minimal_opt()
+        # Classical, not Minimal: oracle/diffuser use a direct
+        # `with control(...): z(...)` (CLAUDE.md gotcha #12, fixed as of
+        # tket 0.15.7 / guppylang 1.0.3) -- the fix only takes effect under
+        # Classical/Default opt level, not Minimal. See grover.py and
+        # tests/test_correctness.py for the full story.
+        main.with_opt_level(OptimizationLevel.Classical)
         .emulator(n_qubits=3)
         .statevector_sim()
         .with_seed(0)

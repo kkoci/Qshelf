@@ -11,9 +11,8 @@ unchanged: `O|x> = -|x>` if `x == marked`, else `O|x> = |x>`. It's built the
 standard way: X-gate the qubits where `marked` has a 0 bit (mapping `|marked>`
 to `|111>`), apply a multi-controlled Z on `|111>`, then undo the X gates.
 
-Multi-controlled Z is implemented as `H . (multi-controlled X) . H` on the
-last qubit, NOT via `with control(...): z(...)` directly -- see the "Gotcha"
-note below and CLAUDE.md for why.
+Multi-controlled Z is implemented directly via `with control(...): z(...)` --
+see "Gotcha #12, fixed" below and CLAUDE.md for why this wasn't always safe.
 
 Diffuser
 --------
@@ -23,18 +22,27 @@ is the uniform superposition. Implemented the same way as the oracle's phase
 flip, just with the roles of "marked state" and `|000>` swapped (X-sandwich
 every qubit unconditionally instead of conditionally on `marked`'s bits).
 
-Gotcha: `with control(q0, q1): z(q2)` is broken in guppylang 1.0.2
+Gotcha #12, fixed as of tket 0.15.7 / guppylang 1.0.3 (2026-09-02)
 --------------------------------------------------------------------
 A direct multi-controlled Z built with two or more control qubits via the
-`control` modifier (`with control(q0, q1): z(q2)`) produces a *wrong* unitary
--- confirmed by comparing against the exact CCZ matrix on a uniform
-superposition input (see `tests/test_correctness.py` and CLAUDE.md). The same
-`control` modifier with an `x` target (`with control(q0, q1): x(q2)`) is
-correct and matches the built-in `toffoli` gate exactly. The workaround used
-throughout this module -- `h(target); with control(...): x(target); h(target)`
--- reproduces the exact CCZ (and CCCZ, tested up to 3 controls) unitary to
-floating-point precision, so it's used everywhere a multi-controlled phase
-flip is needed instead of a direct multi-controlled `z`.
+`control` modifier (`with control(q0, q1): z(q2)`) used to produce a *wrong*
+unitary on guppylang 1.0.2 -- confirmed by comparing against the exact CCZ
+matrix on a uniform superposition input. This registry originally worked
+around it with `h(target); with control(...): x(target); h(target)` (the
+standard H-CCX-H = CCZ identity). Upstream issue
+Quantinuum/guppylang#2251 was fixed by tket-py 0.15.7 ("Preserving order
+edges during (non-dagger) modifier resolution"), pulled in as guppylang
+1.0.3's minimum tket version.
+
+**Important nuance, confirmed empirically (see CLAUDE.md gotcha #12 and
+`tests/test_correctness.py`'s module docstring): the fix only takes effect at
+`OptimizationLevel.Classical` or `.Default`, NOT at `.Minimal`.** It lives in
+tket's `Normalize` pass, which `OptimizationLevel.Minimal` (zero HUGR passes)
+never runs. So this module's direct `with control(...): z(...)` calls are
+only correct when compiled at `Classical` or `Default` -- `tests/
+test_correctness.py`'s `_run()` helper defaults to `OptimizationLevel.
+Classical` for this reason (changed from `Minimal` when this workaround was
+removed).
 
 Also note: unlike `qft`/`iqft`, neither `oracle` nor `diffuser` is a
 `@guppy.comptime` function -- the `control` modifier used here is explicitly
@@ -51,7 +59,7 @@ import math
 
 from guppylang import guppy
 from guppylang.std.builtins import array, control, nat
-from guppylang.std.quantum import h, qubit, x
+from guppylang.std.quantum import h, qubit, x, z
 
 
 def optimal_iterations(n_items: int = 8, n_marked: int = 1) -> int:
@@ -75,10 +83,8 @@ def oracle[marked: nat](qs: array[qubit, 3]) -> None:
         x(qs[1])
     if marked & 1 == 0:
         x(qs[2])
-    h(qs[2])
     with control(qs[0], qs[1]):
-        x(qs[2])
-    h(qs[2])
+        z(qs[2])
     if (marked >> 2) & 1 == 0:
         x(qs[0])
     if (marked >> 1) & 1 == 0:
@@ -94,10 +100,8 @@ def diffuser(qs: array[qubit, 3]) -> None:
         h(qs[i])
     for i in range(3):
         x(qs[i])
-    h(qs[2])
     with control(qs[0], qs[1]):
-        x(qs[2])
-    h(qs[2])
+        z(qs[2])
     for i in range(3):
         x(qs[i])
     for i in range(3):

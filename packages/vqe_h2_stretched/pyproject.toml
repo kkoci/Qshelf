@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "VQE (Variational Quantum Eigensolver) for the H2 molecule at a stretched, non-equilibrium bond length, distributed as a linkable HUGR Package."
 requires-python = ">=3.12,<4"
 dependencies = [
-    "guppylang==1.0.2",
+    "guppylang==1.0.3",
     "scipy>=1.14",
 ]
 

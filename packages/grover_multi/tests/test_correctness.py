@@ -42,6 +42,7 @@ CX -- no rz/rx/ry), so a +-1 sign flip is all the phase alignment needed
 import numpy as np
 import pytest
 from guppylang import guppy
+from guppylang.optimizer import OptimizationLevel
 from guppylang.std.builtins import array
 from guppylang.std.debug import state_output
 from guppylang.std.quantum import discard_array, h, qubit
@@ -245,16 +246,13 @@ def test_probability_curve_matches_theory_for_2items() -> None:
     assert optimal_p == pytest.approx(1.0, abs=1e-8)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "with control(q0, q1): z(q2) is broken in guppylang 1.0.2 -- produces "
-        "a wrong (non-CCZ) unitary. See CLAUDE.md gotcha #12. Kept to document "
-        "the quirk (independently re-verified here, not assumed from "
-        "packages/grover); mark_item uses the H-CCX-H workaround instead."
-    ),
-    strict=True,
-)
 def test_direct_multi_controlled_z_is_broken() -> None:
+    """Regression test for CLAUDE.md gotcha #12 -- fixed as of tket 0.15.7 /
+    guppylang 1.0.3, but only at OptimizationLevel.Classical or above; at
+    OptimizationLevel.Minimal (what mark_item's H-CCX-H workaround exists to
+    avoid needing) the underlying bug is still present, since the fix lives
+    in tket's Normalize pass, which Minimal never runs. See CLAUDE.md gotcha
+    #12 for the full story."""
     from guppylang.std.builtins import control
     from guppylang.std.quantum import z
 
@@ -269,7 +267,13 @@ def test_direct_multi_controlled_z_is_broken() -> None:
         discard_array(qs)
 
     main.check()
-    shots = main.with_minimal_opt().emulator(n_qubits=N_QUBITS).statevector_sim().with_seed(0).run()
+    shots = (
+        main.with_opt_level(OptimizationLevel.Classical)
+        .emulator(n_qubits=N_QUBITS)
+        .statevector_sim()
+        .with_seed(0)
+        .run()
+    )
     v = shots.partial_state_dicts()[0]["out"].as_single_state()
     expected = UNIFORM.astype(complex).copy()
     expected[7] *= -1  # true CCZ on |+++> only flips |111>

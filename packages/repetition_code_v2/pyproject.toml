@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "The bit-flip repetition code generalized to arbitrary code distance and repeated syndrome-extraction rounds, distributed as a linkable HUGR Package."
 requires-python = ">=3.12,<4"
 dependencies = [
-    "guppylang==1.0.2",
+    "guppylang==1.0.3",
 ]
 
 [project.optional-dependencies]

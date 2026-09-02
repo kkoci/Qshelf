@@ -28,8 +28,8 @@ For a 3-qubit register (N=8 items, 1 marked item) we:
      reproduce that shape).
 
 Global phase: the full `grover_search` circuit is built from real-valued
-gates (H, X, and CCZ-via-H-CCX-H) but the overall SIGN of the resulting
-statevector is not fixed by the algorithm (it's a physically meaningless
+gates (H, X, and a direct multi-controlled Z) but the overall SIGN of the
+resulting statevector is not fixed by the algorithm (it's a physically meaningless
 global phase) and, empirically, this particular circuit's sign convention
 depends on `marked` in a way we didn't bother deriving by hand. Tests that
 compare against the closed-form formula align the sign first (flip the
@@ -55,7 +55,8 @@ running many monomorphizations of the same generic functions in one process,
 and both passed reliably across repeated runs during development -- no
 cross-contamination observed. See CLAUDE.md's grover section for the full
 writeup, including the one new bug this package *did* find (multi-controlled
-Z via `with control(...): z(...)`, unrelated to qft's bugs).
+Z via `with control(...): z(...)`, unrelated to qft's bugs -- since fixed,
+see below).
 
 Why `_run` retries
 -------------------
@@ -65,6 +66,25 @@ occasionally (and transiently) gets blocked the first time a fresh process
 touches it, then succeeds immediately on retry. Every test below goes through
 `_run()`, which retries a few times, so the suite is robust to this rather
 than flaking on an unrelated environment issue.
+
+Gotcha #12 fix and the Minimal-vs-Classical opt-level distinction
+--------------------------------------------------------------------
+`with control(q0, q1): z(target)` was broken on guppylang 1.0.2 (CLAUDE.md
+gotcha #12) -- `oracle`/`diffuser` used an `H . multi-controlled-X . H`
+workaround instead. Confirmed fixed upstream (Quantinuum/guppylang#2251) by
+tket-py 0.15.7's "Preserving order edges during (non-dagger) modifier
+resolution", pulled in as guppylang 1.0.3's minimum tket version -- this
+package now pins `guppylang==1.0.3` and `grover.py` uses the direct form.
+**Critically, this fix lives in tket's `Normalize` pass and only runs at
+`OptimizationLevel.Classical` or `.Default`, never at `.Minimal`** (which
+applies zero HUGR passes) -- confirmed empirically by running the exact same
+circuit at all three levels and finding `Minimal` still produces the old,
+wrong (spurious-imaginary-component) unitary while `Classical`/`Default`
+reproduce the true CCZ matrix to ~1e-16. `_run()` below defaults to
+`OptimizationLevel.Classical` for this reason (every function in `grover.py`
+now depends on it) -- this is a `packages/grover`-specific change; other
+packages in this registry keep using `.with_minimal_opt()` where it's
+unrelated to this bug.
 """
 
 import numpy as np
@@ -72,6 +92,7 @@ import pytest
 from guppylang import guppy
 from guppylang.defs import GuppyFunctionDefinition
 from guppylang.emulator.result import EmulatorResult
+from guppylang.optimizer import OptimizationLevel
 from guppylang.std.builtins import array
 from guppylang.std.debug import state_output
 from guppylang.std.quantum import discard_array, h, qubit
@@ -82,16 +103,26 @@ N = 8  # 2**3, fixed register size this package implements
 UNIFORM = np.full(N, 1 / np.sqrt(N))
 
 
-def _run(main: GuppyFunctionDefinition, n_qubits: int = 3) -> np.ndarray:
+def _run(
+    main: GuppyFunctionDefinition,
+    n_qubits: int = 3,
+    opt_level: OptimizationLevel = OptimizationLevel.Classical,
+) -> np.ndarray:
     """Compile, run, and return the "out"-tagged statevector, retrying a
     couple of times if the OS transiently blocks the emulator subprocess
-    (see module docstring)."""
+    (see module docstring).
+
+    Defaults to `OptimizationLevel.Classical`, not `.Minimal`: `oracle` and
+    `diffuser` use a direct `with control(...): z(...)` (CLAUDE.md gotcha
+    #12, fixed as of tket 0.15.7 / guppylang 1.0.3), and that fix only takes
+    effect at `Classical` or `.Default` -- `.Minimal` applies zero HUGR
+    passes and never runs the tket `Normalize` pass the fix lives in."""
     main.check()
     last_error: OSError | None = None
     for _attempt in range(3):
         try:
             shots: EmulatorResult = (
-                main.with_minimal_opt()
+                main.with_opt_level(opt_level)
                 .emulator(n_qubits=n_qubits)
                 .statevector_sim()
                 .with_seed(0)
@@ -233,15 +264,12 @@ def test_probability_curve_matches_theory() -> None:
     assert optimal_p > baseline
 
 
-@pytest.mark.xfail(
-    reason=(
-        "with control(q0, q1): z(q2) is broken in guppylang 1.0.2 -- produces "
-        "a wrong (non-CCZ) unitary. See CLAUDE.md grover section. Kept to "
-        "document the quirk; grover.py uses the H-CCX-H workaround instead."
-    ),
-    strict=True,
-)
-def test_direct_multi_controlled_z_is_broken() -> None:
+def test_direct_multi_controlled_z_matches_ccz() -> None:
+    """Regression test for CLAUDE.md gotcha #12 -- fixed as of tket 0.15.7 /
+    guppylang 1.0.3 (2026-09-02), but only at `OptimizationLevel.Classical`
+    or `.Default`, not `.Minimal` (see `_run`'s docstring). This is now also
+    exactly what `oracle`/`diffuser` compile to, since the H-CCX-H workaround
+    was removed from grover.py once this was confirmed fixed."""
     from guppylang.std.builtins import control
     from guppylang.std.quantum import z
 

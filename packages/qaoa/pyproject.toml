@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "QAOA (Quantum Approximate Optimization Algorithm) for MaxCut, distributed as a linkable HUGR Package."
 requires-python = ">=3.12,<4"
 dependencies = [
-    "guppylang==1.0.2",
+    "guppylang==1.0.3",
     "scipy>=1.14",
 ]
 

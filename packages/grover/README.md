@@ -45,7 +45,7 @@ def main() -> None:
 
 ## Gotchas
 
-`with control(q0, q1): z(target)` (a multi-controlled Z built with 2+ control qubits via guppy's `control` modifier) is **broken** in guppylang 1.0.2 -- it produces a wrong, non-unitary-as-expected result. `oracle` and `diffuser` both need a multi-controlled phase flip and work around this with the standard `H . (multi-controlled X) . H` identity instead (multi-controlled X via `control` is correct and matches the built-in `toffoli`). See `grover.py`'s module docstring and the root [CLAUDE.md](../../CLAUDE.md) for the full writeup and a minimal repro.
+`with control(q0, q1): z(target)` (a multi-controlled Z built with 2+ control qubits via guppy's `control` modifier) was **broken** in guppylang 1.0.2 -- it produced a wrong, non-unitary-as-expected result. This is now fixed upstream (tket 0.15.7 / guppylang 1.0.3, [Quantinuum/guppylang#2251](https://github.com/Quantinuum/guppylang/issues/2251)), and `oracle`/`diffuser` use the direct `with control(...): z(...)` form. **Important nuance**: the fix only takes effect at `OptimizationLevel.Classical` or `.Default`, not `.Minimal` -- it lives in tket's `Normalize` pass, which `Minimal` never runs. This package's tests and example accordingly compile at `OptimizationLevel.Classical`, not `.with_minimal_opt()`. See `grover.py`'s module docstring and the root [CLAUDE.md](../../CLAUDE.md) (gotcha #12) for the full writeup, including how this was verified.
 
 ## Tests
 
