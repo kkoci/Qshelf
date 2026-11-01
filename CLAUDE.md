@@ -4,6 +4,8 @@ Working notes for continued development of this package registry. See [README.md
 
 ## Versions used (pinned 2026-08-28)
 
+**Current pin: `guppylang==1.2.0` (since 2026-11-01)** -- the table below is the original 2026-08-28 baseline; see the "Version update" subsections after it for what changed and the current versions of every package.
+
 Installed into `.venv` via `pip install guppylang pytest` (Python 3.14.5, Windows):
 
 | package | version |
@@ -27,6 +29,34 @@ Installed into `.venv` via `pip install guppylang pytest` (Python 3.14.5, Window
 ### Version update (2026-09-02): guppylang 1.0.2 -> 1.0.3, tket 0.15.6 -> 0.15.7
 
 Every package's `pyproject.toml` now pins `guppylang==1.0.3` (was `==1.0.2`), which raises the transitive minimum `tket` version to 0.15.7 (was 0.15.6) -- this fixes gotcha #12 (see below), *conditionally* on which `OptimizationLevel` a given compilation uses. `guppylang-internals` moved to 1.0.3 alongside `guppylang`; `hugr` (0.18.5), `selene-sim` (0.3.0), `selene-hugr-qis-compiler` (0.4.2), `selene-core` (0.3.0), and `pytket` (2.18.1) all stayed the same -- confirmed via `pip check` (clean) both immediately after the bump and after re-running every package's full test suite. Chose an exact pin (`==1.0.3`), not a range (`>=1.0.3`), matching this file's own established convention of pinning exact versions for reproducibility rather than letting a fresh install silently pull in a future, unverified guppylang release.
+
+### Version update (2026-11-01): guppylang 1.0.3 -> 1.2.0
+
+Every package's `pyproject.toml` now pins `guppylang==1.2.0`. guppylang 1.2.0 itself requires `guppylang-internals==1.2.0`, `selene-sim~=0.3.1`, `selene-hugr-qis-compiler~=0.5.1`, `pytket>=2.7.0`, `numpy>=2.2.6,<3`, `tqdm>=4.70.0`.
+
+**How it was installed (reproduce this way):** wheels-only (`--only-binary :all:`) with a pip constraints file pinning *every* package outside the guppylang/hugr/tket/selene family to its exact pre-bump version (generated from `pip freeze --exclude-editable`, minus `guppylang*`, `hugr`, `tket*`, `selene-*`). `pytket` stayed pinned at 2.18.1 (still satisfies `>=2.7.0`). Editable packages were then refreshed with `pip install --no-deps -e packages/<name>` (normal build isolation -- `--no-build-isolation` fails because `hatchling` is not installed in `.venv`). `pip check` clean afterwards; `pip freeze` confirmed no non-family package moved.
+
+| package | before | after |
+|---|---|---|
+| `guppylang` | 1.0.3 | **1.2.0** |
+| `guppylang-internals` | 1.0.3 | **1.2.0** |
+| `hugr` | 0.18.5 | **0.18.8** |
+| `tket` | 0.15.7 | **0.15.13** |
+| `tket-exts` | 0.14.1 | **0.14.3** |
+| `tket_eccs` | 0.6.0 | 0.6.0 |
+| `selene-sim` | 0.3.0 | **0.3.7** |
+| `selene-core` | 0.3.0 | **0.3.3** |
+| `selene-hugr-qis-compiler` | 0.4.2 | **0.5.1** |
+| `selene-formats` | -- | **0.1.2** (new, pulled in by selene-core) |
+| `msgpack` | -- | **1.2.4** (new transitive dep -- the only non-family package added; could not be constrained since it wasn't previously installed) |
+| `pytket`, `numpy`, `scipy`, `pytest`, everything else | unchanged | unchanged |
+
+**Results (2026-11-01):** 357 of 358 tests pass across all 8 packages (qft 72, grover 55, grover_multi 63, repetition_code 29, repetition_code_v2 56 + 2 skipped -- the pre-existing `error_qubit out of range for this n` parametrize guard -- qaoa 12, vqe_h2 13/14, vqe_h2_stretched 17). 11 of 12 examples were run and print correct results (`vqe_h2_stretched/examples/basic_vqe_stretched.py` was not completed -- the run was killed by the host for low system memory, not by an error; its package's 17 tests did pass), including the two-process `qft` `build_lib.py` -> `linked_consumer.py` HUGR serialize+link flow (gotcha #4's pattern still works unchanged). No source changes were needed; every API this registry uses (`with_minimal_opt`, `with_opt_level`, `compile_function`, `emulator`, `state_output`, `link_name`, `OptimizationLevel.{Minimal,Classical,Default}`, ...) still exists and imports without deprecation warnings.
+
+- **The one failure, `vqe_h2`'s `test_optimize_vqe_lowers_energy_from_hf_baseline`, is pre-existing, NOT caused by this bump.** Verified by building a scratch venv with the exact pre-bump stack (guppylang 1.0.3 / selene-sim 0.3.0) and running the same test at the same commit: it fails there too, deterministically, with `optimize_vqe` finding -0.4768 Hartree against a required `< -0.6889` (on 1.2.0 it finds -0.5313 -- also failing, slightly less badly). Both stacks are bit-for-bit reproducible run to run. Root cause is the test's own budget (`shots=80, maxiter=8`) being too small for a reliable pass: across seeds 1-5 on 1.2.0, 3 pass and 2 fail. The `estimate_energy` pipeline itself is correct on 1.2.0 -- at 4000 shots it matches the exact numpy energy to ~1e-3 Hartree at `DEFAULT_X0` and exactly at HF. **This also suggests the "persistent" failures this test's docstring attributes to gotcha #3's `WinError 4551` were at least partly this deterministic assertion failure instead** -- check the actual error message before blaming the environment. Not fixed in this pass (test budget/threshold change is a separate decision).
+- **Selene's seeded shot stream changed between selene-sim 0.3.0 and 0.3.7**: the same `with_seed(0)` gives different samples (e.g. `estimate_energy(DEFAULT_X0, shots=80, seed=0)` = -0.4722 on 0.3.0 vs -0.4613 on 0.3.7). Any test asserting on a specific seeded, shot-sampled value should be expected to move across Selene upgrades.
+- **New warning noise, upstream-internal**: every emulator run emits `DeprecationWarning: Use EmulatorState.from_bytes(...).compile_to_bitcode(...) instead.` from inside `selene_helios_qis_plugin/build.py` -- Selene calling its own deprecated API, not anything in this registry's code.
+- **Not re-verified on 1.2.0**: the individual gotchas below (#12's Minimal-opt-level behaviour, #21's array-length arithmetic, #22, etc.) were not re-probed one by one -- only the full test suites were run, which cover #12 at Classical opt level via the grover/grover_multi regression tests. Some of those limitations may have been lifted in 1.1.x/1.2.0; check before relying on a workaround being still necessary.
 
 ## Docs consulted
 
