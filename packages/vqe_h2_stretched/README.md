@@ -56,7 +56,7 @@ Reran `vqe_h2`'s exact investigation -- starting from all-zero parameters, small
 
 ## Gotchas
 
-Nothing new -- this package reuses `vqe_h2`'s circuit structure unchanged, so every guppylang-specific finding `vqe_h2` already checked (gotchas #5, #12, #13, #16, #17 not applicable; #18 not applicable to `ansatz_circuit` itself; #19 applies, handled the same way) transfers over unmodified. See `vqe_h2/README.md`'s Gotchas section and the root [CLAUDE.md](../../CLAUDE.md) for the full writeup. This package's own contribution isn't a new guppylang bug -- it's the shot-noise-sensitivity and slower-convergence findings above, which are properties of this specific optimization landscape, not of guppylang.
+Nothing new -- this package reuses `vqe_h2`'s circuit structure unchanged, so every guppylang-specific finding `vqe_h2` already checked (gotchas #12, #13, #16, #17 not applicable; #18 not applicable to `ansatz_circuit` itself; #19 applies, handled the same way) transfers over unmodified. See `vqe_h2/README.md`'s Gotchas section and the root [CLAUDE.md](../../CLAUDE.md) for the full writeup. This package's own contribution isn't a new guppylang bug -- it's the shot-noise-sensitivity and slower-convergence findings above, which are properties of this specific optimization landscape, not of guppylang.
 
 ## How correctness was verified
 

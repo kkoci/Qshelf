@@ -6,11 +6,6 @@ with the qft package installed -- see ../README.md)
 Prepares each of the 4 computational basis states on a 2-qubit register,
 applies `qft` then `iqft`, and prints the resulting statevector next to the
 (trivially) expected result: the original basis state, exactly.
-
-Note: this example deliberately calls `qft` and `iqft` together in the same
-program. See CLAUDE.md ("iqft in isolation") for why -- calling `iqft` with no
-`qft` anywhere in the same compiled program is a known-bad pattern in
-guppylang 1.0.2 for this comptime-generic pair.
 """
 
 import numpy as np

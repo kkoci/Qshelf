@@ -44,20 +44,10 @@ H/CRZ block per qubit.
 This means `qaoa_circuit` ends up calling comptime `cost_hamiltonian_layer`
 and comptime `mixer_layer`, which are themselves called from a comptime
 `main()` in `run_qaoa` below -- three levels of comptime-calling-comptime.
-We checked this specifically against CLAUDE.md's gotcha #5 (the confirmed
-guppylang 1.0.2 bug where a comptime function derived from another comptime
-function via `dagger`/hand-reversal misbehaves when used without its
-"parent" also being called on the same register) before committing to this
-design: nothing here is derived from anything else via `dagger`, there is no
-"parent/derived" relationship between any of these functions, and we ran the
-whole chain -- `cost_hamiltonian_layer`, `mixer_layer`, and `qaoa_circuit`
+We ran the whole chain -- `cost_hamiltonian_layer`, `mixer_layer`, and `qaoa_circuit`
 for p=1, 2, and 3 layers, several different gamma/beta values, all in one
 process -- against an exact `scipy.linalg.expm` reference and got ~1e-16
-agreement every time (see `tests/test_correctness.py` and CLAUDE.md). No
-subprocess isolation is used in this package's tests, matching
-`packages/grover`'s finding (not `packages/qft`'s) that gotcha #5's
-precondition (a comptime function used *only* via composition with another
-comptime function derived from it) genuinely doesn't apply here.
+agreement every time (see `tests/test_correctness.py` and CLAUDE.md).
 
 New (to this package) finding: explicit generic-argument syntax at a call
 site (`func[T](...)`, which works fine in a *plain* `@guppy` function -- see

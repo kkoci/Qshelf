@@ -2,52 +2,37 @@
 
 Methodology
 -----------
-QFT is non-Clifford in general (the controlled phase rotations `crz(..., pi/2**k)`
-for k >= 2 are outside the Clifford group), so Selene's Stim (stabilizer) backend
-cannot simulate it exactly -- these tests use `statevector_sim()` (Quest) instead.
-See ../../../CLAUDE.md for details.
+QFT is non-Clifford in general (controlled-phase rotations by pi/2**k for k >= 2
+are outside the Clifford group), so Selene's Stim backend can't simulate it --
+these tests use `statevector_sim()` (Quest).
 
-For each register size n we:
-  1. Run (in a fresh subprocess -- see below) a guppy program that, for every
-     computational basis state |k>, prepares |k>, applies `qft`/`iqft`/both, and
-     reports the resulting statevector via `state_output`.
-  2. Assemble those columns into the full 2**n x 2**n unitary matrix implemented
-     by the compiled circuit.
-  3. Compare that matrix against a reference: `qft` against the exact textbook
-     QFT unitary (`numpy.fft.ifft` with `norm="ortho"`, mathematically identical
-     in this qubit ordering -- qs[0] most significant, see qft.py docstring);
-     `iqft` against being the exact inverse of `qft` (round trip in both
-     directions), rather than against an absolute reference matrix -- see the
-     "iqft in isolation" note below for why.
+Two complementary kinds of check, each against an exact reference
+(`numpy.fft.ifft(eye, norm="ortho")` for `qft`, `numpy.fft.fft(...)` for `iqft`,
+identity for round trips, diag(1, 1, 1, e^{i theta}) for `cphase`):
 
-Why subprocesses, and why iqft is verified by round trip, not by reference
-matrix (important gotcha, see CLAUDE.md gotcha #5 for the full writeup)
---------------------------------------------------------------------------
-guppylang 1.0.2 has a confirmed bug: `iqft` compiled and run in a program with
-no call to `qft` anywhere in it (e.g. a test sweeping `iqft` alone over several
-values of n) produces a matrix that does NOT match the exact inverse-QFT
-unitary -- yet the exact same `iqft`, compiled in a program that also calls
-`qft` on the *same register* (either order), reproduces it exactly and
-round-trips `qft` to machine precision. This does not depend on whether the
-driver is `@guppy` or `@guppy.comptime`, and a throwaway `qft` call on an
-*unrelated* register does not fix it. Worse, once triggered (e.g. by a test
-file that exercises `iqft` alone anywhere in it), the corruption is
-non-deterministic and can leak into *other*, seemingly-unrelated compilations
-in the same process -- we observed a `qft`-only n-sweep (no `iqft` involved)
-fail intermittently when `iqft`-only tests were also present in the same
-pytest file, while the identical `qft`-only sweep passed 3/3 times in
-isolation. We were unable to isolate a smaller repro or find the root cause.
+1. Basis-column matrices: run every basis state |k> through the op and compare
+   the assembled 2**n x 2**n matrix to the reference. Caveat: Selene's state
+   readout canonicalises each reported state (first non-zero amplitude made real
+   and positive), so every column carries its own global phase. These tests are
+   therefore BLIND to errors that multiply different basis inputs by different
+   phases.
 
-Consequently, every test case below runs in its own subprocess
-(`_case_runner.py`), which sidesteps the cross-contamination entirely
-regardless of its exact trigger, and is also a more faithful "does this
-actually work end to end" check than importing guppy definitions into a shared
-pytest process. And `iqft`'s correctness is verified via round trips against
-`qft` (reliable, and arguably the more meaningful property for a package
-function that in practice is almost always used alongside a matching `qft`
-call, e.g. in phase estimation) rather than against an absolute reference
-matrix in isolation; `test_iqft_in_isolation_matches_numpy_fft` is kept and
-marked `xfail` to document the quirk rather than silently drop coverage.
+2. Superposition inputs (the strong check): random product states, read out
+   before and after the op, compared as full statevectors up to a single global
+   phase: out == e^{i alpha} * U_ref @ in. Because the input is a superposition,
+   any relative-phase error is visible inside one reported state.
+
+Why (2) exists: `qft` originally used `crz` where a controlled-phase gate was
+needed. CRz(theta) = diag(1, 1, e^{-i theta/2}, e^{i theta/2}) differs from
+CP(theta) = diag(1, 1, 1, e^{i theta}) by an rz on the control. In `qft` each
+control is still a basis state when the gate fires, so the error was only a
+per-input phase -- invisible to (1). It showed up only in `iqft` (whose
+controls are in superposition when the gate fires), and was misdiagnosed as a
+guppylang bug (guppylang#2250, closed; root cause was crz vs cphase in our
+code).
+
+Each case runs in a fresh subprocess via `_case_runner.py`; transient Windows
+Application Control blocks are retried there (CLAUDE.md gotcha #3).
 """
 
 import json
@@ -60,47 +45,80 @@ import pytest
 
 CASE_RUNNER = Path(__file__).parent / "_case_runner.py"
 SIZES = [1, 2, 3, 4]
+SEEDS = [0, 1, 2]
 
 
-def _run_case(n: int, op: str) -> np.ndarray:
-    """Run one (n, op) case in a fresh subprocess and return the resulting matrix.
-
-    Retries a couple of times: on this development machine, a Windows
-    Application Control policy occasionally (and transiently) blocks a native
-    DLL/executable the first time it's touched by a new process; retrying lets
-    the OS finish whatever scan is blocking it. See CLAUDE.md.
-    """
+def _run_case(n: int, op: str, *extra: str) -> dict:
+    """Run one case in a fresh subprocess and return its parsed JSON output."""
     last_error: subprocess.CalledProcessError | None = None
     for _attempt in range(3):
         try:
             result = subprocess.run(
-                [sys.executable, str(CASE_RUNNER), "--n", str(n), "--op", op],
+                [sys.executable, str(CASE_RUNNER), "--n", str(n), "--op", op, *extra],
                 capture_output=True,
                 text=True,
                 check=True,
                 cwd=CASE_RUNNER.parent,
             )
-            break
+            return json.loads(result.stdout)
         except subprocess.CalledProcessError as exc:  # pragma: no cover
             last_error = exc
-    else:
-        raise AssertionError(
-            f"case runner failed after retries: {last_error.stderr if last_error else ''}"
-        )
-    data = json.loads(result.stdout)
+    raise AssertionError(
+        f"case runner failed after retries: {last_error.stderr if last_error else ''}"
+    )
+
+
+def _basis_matrix(n: int, op: str) -> np.ndarray:
+    data = _run_case(n, op, "--mode", "basis")
     return np.array(data["real"]) + 1j * np.array(data["imag"])
 
 
-@pytest.mark.parametrize("n", SIZES)
-def test_qft_matches_numpy_ifft(n: int) -> None:
-    matrix = _run_case(n, "qft")
-    expected = np.fft.ifft(np.eye(2**n), axis=0, norm="ortho")
-    np.testing.assert_allclose(matrix, expected, atol=1e-8)
+def _random_pairs(n: int, op: str, seed: int, *extra: str) -> list[tuple[np.ndarray, np.ndarray]]:
+    data = _run_case(n, op, "--mode", "random", "--seed", str(seed), *extra)
+    return [
+        (np.array(p["in"][0]) + 1j * np.array(p["in"][1]),
+         np.array(p["out"][0]) + 1j * np.array(p["out"][1]))
+        for p in data["pairs"]
+    ]
 
 
+def assert_equal_up_to_global_phase(actual: np.ndarray, expected: np.ndarray, atol: float = 1e-8) -> None:
+    """Assert actual == e^{i alpha} * expected for a single global phase alpha.
+
+    Full complex statevector comparison (not probabilities), so any relative
+    phase error between basis components fails.
+    """
+    overlap = np.vdot(expected, actual)
+    assert abs(overlap) > 1e-12, "states are orthogonal"
+    np.testing.assert_allclose(actual, expected * (overlap / abs(overlap)), atol=atol)
+
+
+def _qft_ref(n: int) -> np.ndarray:
+    return np.fft.ifft(np.eye(2**n), axis=0, norm="ortho")
+
+
+def _iqft_ref(n: int) -> np.ndarray:
+    return np.fft.fft(np.eye(2**n), axis=0, norm="ortho")
+
+
+REFERENCES = {
+    "qft": _qft_ref,
+    "iqft": _iqft_ref,
+    "roundtrip": lambda n: np.eye(2**n),
+    "roundtrip_reverse": lambda n: np.eye(2**n),
+}
+
+
+# ---------------------------------------------------------------------------
+# (1) basis-column matrices
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("op", list(REFERENCES))
 @pytest.mark.parametrize("n", SIZES)
-def test_qft_is_unitary(n: int) -> None:
-    matrix = _run_case(n, "qft")
+def test_basis_matrix_matches_reference(n: int, op: str) -> None:
+    matrix = _basis_matrix(n, op)
+    np.testing.assert_allclose(matrix, REFERENCES[op](n), atol=1e-8)
     np.testing.assert_allclose(matrix @ matrix.conj().T, np.eye(2**n), atol=1e-8)
 
 
@@ -114,7 +132,7 @@ def test_qft_hand_verified_n2() -> None:
       |2> -> (1/2)(|0> - |1> + |2> - |3>)
       |3> -> (1/2)(|0> - i|1> - |2> + i|3>)
     """
-    matrix = _run_case(2, "qft")
+    matrix = _basis_matrix(2, "qft")
     half = 0.5
     expected = np.array(
         [
@@ -128,28 +146,53 @@ def test_qft_hand_verified_n2() -> None:
     np.testing.assert_allclose(matrix, expected, atol=1e-8)
 
 
+def test_iqft_alone_case_a() -> None:
+    """iqft alone on |01> (n=2): exactly (1/2)(|0> - i|1> - |2> + i|3>).
+
+    With the old crz-based iqft this came out as [0.5, 0.354-0.354j, -0.5,
+    -0.354+0.354j] -- unitary, right magnitudes, wrong relative phases.
+    """
+    actual = _basis_matrix(2, "iqft")[:, 1]
+    assert_equal_up_to_global_phase(actual, np.array([0.5, -0.5j, -0.5, 0.5j]))
+
+
+# ---------------------------------------------------------------------------
+# (2) superposition inputs, full statevector up to one global phase
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+@pytest.mark.parametrize("op", list(REFERENCES))
 @pytest.mark.parametrize("n", SIZES)
-def test_roundtrip_qft_then_iqft_is_identity(n: int) -> None:
-    matrix = _run_case(n, "roundtrip")
-    np.testing.assert_allclose(matrix, np.eye(2**n), atol=1e-8)
+def test_superposition_input_matches_reference(n: int, op: str, seed: int) -> None:
+    ref = REFERENCES[op](n)
+    for state_in, state_out in _random_pairs(n, op, seed):
+        assert_equal_up_to_global_phase(state_out, ref @ state_in)
 
 
-@pytest.mark.parametrize("n", SIZES)
-def test_roundtrip_iqft_then_qft_is_identity(n: int) -> None:
-    matrix = _run_case(n, "roundtrip_reverse")
-    np.testing.assert_allclose(matrix, np.eye(2**n), atol=1e-8)
+@pytest.mark.parametrize("theta_halfturns", [0.5, 0.25, 0.125, -0.25, 1.0 / 3.0])
+def test_cphase_is_controlled_phase(theta_halfturns: float) -> None:
+    """cphase(theta) == diag(1, 1, 1, e^{i theta}) up to global phase, on superpositions."""
+    theta = np.pi * theta_halfturns
+    ref = np.diag([1, 1, 1, np.exp(1j * theta)])
+    for seed in SEEDS:
+        pairs = _random_pairs(2, "cphase", seed, "--theta", str(theta_halfturns))
+        for state_in, state_out in pairs:
+            assert_equal_up_to_global_phase(state_out, ref @ state_in)
 
 
-@pytest.mark.xfail(
-    reason=(
-        "iqft compiled/run with no call to qft anywhere in the same program "
-        "produces a different unitary than the exact same iqft run alongside "
-        "qft -- see CLAUDE.md gotcha #2. Kept to document the quirk."
-    ),
-    strict=True,
-)
-@pytest.mark.parametrize("n", [2, 3, 4])
-def test_iqft_in_isolation_matches_numpy_fft(n: int) -> None:
-    matrix = _run_case(n, "iqft")
-    expected = np.fft.fft(np.eye(2**n), axis=0, norm="ortho")
-    np.testing.assert_allclose(matrix, expected, atol=1e-8)
+def test_superposition_check_detects_crz_vs_cphase() -> None:
+    """Sanity check on the checker itself: CRz in place of CP must be rejected.
+
+    Pure numpy -- guards against the global-phase-aligned comparison being too
+    lenient to catch the exact class of bug it was added for.
+    """
+    theta = np.pi / 2
+    crz = np.diag([1, 1, np.exp(-1j * theta / 2), np.exp(1j * theta / 2)])
+    cp = np.diag([1, 1, 1, np.exp(1j * theta)])
+    state = np.ones(4) / 2
+    with pytest.raises(AssertionError):
+        assert_equal_up_to_global_phase(crz @ state, cp @ state)
+    # ...but a basis input can't tell them apart (the trap the old tests fell into).
+    basis = np.array([0, 0, 0, 1], dtype=complex)
+    assert_equal_up_to_global_phase(crz @ basis, cp @ basis)

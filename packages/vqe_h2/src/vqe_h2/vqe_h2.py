@@ -74,7 +74,7 @@ Checked against CLAUDE.md's full bug/finding list before writing any of the
 above, per the task brief -- see CLAUDE.md's VQE section for the full
 writeup of what does and doesn't apply here (short version: `ansatz_circuit`
 is plain `@guppy`, not `@guppy.comptime`, so most of the comptime-specific
-gotchas -- #5, #13, #16, #17 -- don't even have a precondition to check;
+gotchas -- #13, #16, #17 -- don't even have a precondition to check;
 only the measurement-circuit *builder* needs comptime, to iterate a Python
 dict of {qubit: Pauli type}, and was verified safe the same way
 `packages/qaoa`'s comptime layers were).

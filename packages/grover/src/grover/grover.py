@@ -48,11 +48,7 @@ Also note: unlike `qft`/`iqft`, neither `oracle` nor `diffuser` is a
 `@guppy.comptime` function -- the `control` modifier used here is explicitly
 disallowed inside `@guppy.comptime` bodies (raises `GuppyComptimeError`), so
 these are plain `@guppy` functions generic over `marked: nat` using ordinary
-guppy `if`/bitwise ops, the same pattern `packages/qft`'s tests already
-established as safe. This also means none of `packages/qft`'s CLAUDE.md
-gotchas about `@guppy.comptime` monomorphization apply here -- confirmed by
-running `grover_search` for all 8 values of `marked` sequentially in a single
-process with no corruption (see CLAUDE.md's grover section).
+guppy `if`/bitwise ops.
 """
 
 import math

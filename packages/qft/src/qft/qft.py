@@ -7,12 +7,17 @@ Convention: for an n-qubit array `qs`, `qs[0]` is the most significant qubit.
 
 i.e. the matrix ``numpy.fft.ifft(np.eye(2**n), norm="ortho")`` in this qubit
 ordering. `iqft` is its exact inverse (adjoint).
+
+The QFT's two-qubit gates are controlled-*phase* gates,
+CP(theta) = diag(1, 1, 1, e^{i theta}) -- not guppylang's `crz`, which is
+CRz(theta) = diag(1, 1, e^{-i theta/2}, e^{i theta/2}). They differ by an
+`rz(theta/2)` on the control qubit (up to global phase); see `cphase`.
 """
 
 from guppylang import guppy
-from guppylang.std.angles import pi
+from guppylang.std.angles import angle, pi
 from guppylang.std.builtins import array, nat
-from guppylang.std.quantum import cx, crz, h, qubit
+from guppylang.std.quantum import crz, cx, h, qubit, rz
 
 
 @guppy(daggerable=True)
@@ -21,6 +26,24 @@ def swap(q0: qubit, q1: qubit) -> None:
     cx(q0, q1)
     cx(q1, q0)
     cx(q0, q1)
+
+
+@guppy(daggerable=True)
+def cphase(control: qubit, target: qubit, theta: angle) -> None:
+    """Controlled-phase gate CP(theta) = diag(1, 1, 1, e^{i theta}), up to global phase.
+
+    Qubit ordering: [control, target]. Built as `rz(control, theta/2)` followed
+    by `crz(control, target, theta)`:
+
+        (Rz(theta/2) (x) I) . CRz(theta) = e^{-i theta/4} . CP(theta)
+
+    The leftover e^{-i theta/4} is a true global phase as long as `cphase` is
+    not itself placed under a `control` modifier (it isn't, anywhere in this
+    package). `crz` alone is NOT a controlled-phase gate: it differs from CP by
+    a relative phase on the control qubit.
+    """
+    rz(control, theta / 2.0)
+    crz(control, target, theta)
 
 
 @guppy.comptime(daggerable=True)
@@ -35,7 +58,7 @@ def qft[n: nat](qs: array[qubit, n]) -> None:
     for i in range(n):
         h(qs[i])
         for j in range(i + 1, n):
-            crz(qs[j], qs[i], pi / 2.0 ** (j - i))
+            cphase(qs[j], qs[i], pi / 2.0 ** (j - i))
     for k in range(n // 2):
         swap(qs[k], qs[n - k - 1])
 
@@ -53,5 +76,5 @@ def iqft[n: nat](qs: array[qubit, n]) -> None:
         i = n - 1 - m
         for jm in range(n - 1 - i):
             j = n - 1 - jm
-            crz(qs[j], qs[i], -pi / 2.0 ** (j - i))
+            cphase(qs[j], qs[i], -pi / 2.0 ** (j - i))
         h(qs[i])

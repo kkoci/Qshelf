@@ -31,8 +31,7 @@ Structure
   2. The full `qaoa_circuit` verified against an exact reference built from
      `scipy.linalg.expm` of the true cost/mixer Hamiltonians, for several
      (gammas, betas) and p = 1, 2, 3 layers -- run sequentially in one
-     process (see qaoa.py's module docstring for why that's safe here,
-     unlike `packages/qft`'s `iqft`).
+     process.
   3. `run_qaoa` (real shot sampling, not the exact statevector) and
      `optimize_qaoa` (the actual classical-quantum loop) exercised end to
      end, checking that the measured cut distribution both beats the random

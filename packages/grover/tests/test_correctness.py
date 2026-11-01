@@ -39,24 +39,13 @@ state-vector-level tests, not a workaround for a bug: probabilities
 (`|amplitude|**2`), which are what's physically observable, match without
 any alignment (see `test_grover_probability_matches_theory_unaligned`).
 
-Why no subprocess isolation here (unlike packages/qft)
---------------------------------------------------------
-packages/qft's tests isolate each case in its own subprocess because of a
-confirmed guppylang 1.0.2 bug where `iqft` (built by daggering/reversing
-`qft`, both `@guppy.comptime`) behaves differently in isolation vs combined
-with `qft` in the same process -- see CLAUDE.md gotcha #5. Neither `oracle`
-nor `diffuser` here uses `@guppy.comptime` at all (the `control` modifier they
-both rely on is explicitly disallowed inside comptime bodies -- see
-grover.py's module docstring), so that bug's precondition doesn't apply. We
-confirmed this directly: `test_grover_matches_theory_at_optimal_iterations`
-below sweeps `marked` across all 8 values and `test_probability_curve_matches_theory`
-separately sweeps `iterations`, both as ordinary parametrized pytest tests
-running many monomorphizations of the same generic functions in one process,
-and both passed reliably across repeated runs during development -- no
-cross-contamination observed. See CLAUDE.md's grover section for the full
-writeup, including the one new bug this package *did* find (multi-controlled
-Z via `with control(...): z(...)`, unrelated to qft's bugs -- since fixed,
-see below).
+All tests run in one ordinary pytest process (no per-case subprocesses):
+`test_grover_matches_theory_at_optimal_iterations` sweeps `marked` across all
+8 values and `test_probability_curve_matches_theory` sweeps `iterations`, many
+monomorphizations of the same generic functions in one process, reliably
+clean across repeated runs. See CLAUDE.md's grover section for the one bug
+this package did find (multi-controlled Z via `with control(...): z(...)`,
+since fixed, see below).
 
 Why `_run` retries
 -------------------

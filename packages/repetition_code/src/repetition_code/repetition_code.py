@@ -66,7 +66,7 @@ measures ancillas partway through the circuit, not at the very end) and
 classical control flow driven by measurement outcomes (`correct`) are new
 territory for this registry (no earlier package used either), so this was
 checked carefully rather than assumed clean. Short version, see CLAUDE.md for
-the full writeup: none of the comptime-related gotchas (#5, #13, #16, #17)
+the full writeup: none of the comptime-related gotchas (#13, #16, #17)
 apply -- `encode`/`extract_syndrome`/`correct` are all plain `@guppy`
 functions; this package needs no `@guppy.comptime` at all, since there is no
 Python-level data structure (an edge list, a Pauli-term dict) to iterate --

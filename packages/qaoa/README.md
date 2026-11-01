@@ -43,7 +43,7 @@ avg_cut, bitstrings = run_qaoa(gammas, betas, shots=1000)
 - **Explicit generic call syntax (`func[T](...)`) doesn't work inside `@guppy.comptime`** (raises `GuppyComptimeError`), unlike in a plain `@guppy` function (see `packages/grover`'s CLAUDE.md gotcha #15). Not needed here -- `qaoa_circuit`'s `p` is always inferred from array length -- but worth knowing.
 - **Comparing this package's circuits against a hand-built reference needs full complex phase alignment**, not just a +-1 sign flip like `packages/qft`/`packages/grover` use (their circuits are real-valued; QAOA's `rz`/`rx` gates are genuinely complex). See `tests/test_correctness.py`'s `_phase_align` and its module docstring.
 
-Full writeup, including why this package's heavy use of `@guppy.comptime` (three levels of comptime-calling-comptime) was checked against `packages/qft`'s confirmed comptime bug and found *not* to apply here, is in the root [CLAUDE.md](../../CLAUDE.md).
+Full writeup is in the root [CLAUDE.md](../../CLAUDE.md).
 
 ## Tests
 

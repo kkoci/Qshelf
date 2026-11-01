@@ -151,7 +151,7 @@ Checked against CLAUDE.md's full bug/finding list before writing any of the
 above, per the task brief and this registry's standing convention -- see
 CLAUDE.md for the full writeup (short version: nothing new: this package
 reuses `vqe_h2`'s circuit structure unchanged, so every gotcha check
-`vqe_h2` already did -- #5, #12, #13, #16, #17 not applicable; #18 not
+`vqe_h2` already did -- #12, #13, #16, #17 not applicable; #18 not
 applicable to `ansatz_circuit` itself, real-valued; #19 applies and is
 handled the same way -- transfers over unchanged).
 """

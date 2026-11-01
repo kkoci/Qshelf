@@ -141,8 +141,7 @@ constant k) would not have hit this at all.
 
 Checked against CLAUDE.md's full bug/finding list before writing any of the
 above, per the task brief and this registry's standing convention:
-gotchas #5 (iqft-isolation/comptime-derived-function cross-contamination),
-#12 (`with control(...): z(...)` broken), and #13 (`control`/`dagger`/
+gotchas #12 (`with control(...): z(...)` broken) and #13 (`control`/`dagger`/
 `power` forbidden in comptime) all remain not-applicable for the same
 reasons `repetition_code`'s own notes gave -- `encode`/`extract_syndrome`/
 `correct`/`correct_for_rounds` are all plain `@guppy` functions (no
