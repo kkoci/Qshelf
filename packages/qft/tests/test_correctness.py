@@ -31,50 +31,31 @@ controls are in superposition when the gate fires), and was misdiagnosed as a
 guppylang bug (guppylang#2250, closed; root cause was crz vs cphase in our
 code).
 
-Each case runs in a fresh subprocess via `_case_runner.py`; transient Windows
-Application Control blocks are retried there (CLAUDE.md gotcha #3).
+All cases run in this pytest process via `_case_runner.run_case`, which
+retries transient Windows Application Control blocks of the Selene runner
+(CLAUDE.md gotcha #3). An earlier version ran each case in its own subprocess
+to dodge a suspected cross-contamination bug; that bug never existed (see
+CLAUDE.md gotcha #5), so the isolation was removed.
 """
-
-import json
-import subprocess
-import sys
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-CASE_RUNNER = Path(__file__).parent / "_case_runner.py"
+from _case_runner import run_case
+
 SIZES = [1, 2, 3, 4]
 SEEDS = [0, 1, 2]
 
 
-def _run_case(n: int, op: str, *extra: str) -> dict:
-    """Run one case in a fresh subprocess and return its parsed JSON output."""
-    last_error: subprocess.CalledProcessError | None = None
-    for _attempt in range(3):
-        try:
-            result = subprocess.run(
-                [sys.executable, str(CASE_RUNNER), "--n", str(n), "--op", op, *extra],
-                capture_output=True,
-                text=True,
-                check=True,
-                cwd=CASE_RUNNER.parent,
-            )
-            return json.loads(result.stdout)
-        except subprocess.CalledProcessError as exc:  # pragma: no cover
-            last_error = exc
-    raise AssertionError(
-        f"case runner failed after retries: {last_error.stderr if last_error else ''}"
-    )
-
-
 def _basis_matrix(n: int, op: str) -> np.ndarray:
-    data = _run_case(n, op, "--mode", "basis")
+    data = run_case(n, op, "basis")
     return np.array(data["real"]) + 1j * np.array(data["imag"])
 
 
-def _random_pairs(n: int, op: str, seed: int, *extra: str) -> list[tuple[np.ndarray, np.ndarray]]:
-    data = _run_case(n, op, "--mode", "random", "--seed", str(seed), *extra)
+def _random_pairs(
+    n: int, op: str, seed: int, theta_halfturns: float = 0.5
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    data = run_case(n, op, "random", seed=seed, theta_halfturns=theta_halfturns)
     return [
         (np.array(p["in"][0]) + 1j * np.array(p["in"][1]),
          np.array(p["out"][0]) + 1j * np.array(p["out"][1]))
@@ -176,7 +157,7 @@ def test_cphase_is_controlled_phase(theta_halfturns: float) -> None:
     theta = np.pi * theta_halfturns
     ref = np.diag([1, 1, 1, np.exp(1j * theta)])
     for seed in SEEDS:
-        pairs = _random_pairs(2, "cphase", seed, "--theta", str(theta_halfturns))
+        pairs = _random_pairs(2, "cphase", seed, theta_halfturns=theta_halfturns)
         for state_in, state_out in pairs:
             assert_equal_up_to_global_phase(state_out, ref @ state_in)
 

@@ -1,10 +1,8 @@
 """Runner for a single QFT/IQFT/cphase correctness case.
 
-Used two ways:
-  * as a script, one case per fresh Python process (what test_correctness.py
-    does), printing JSON to stdout;
-  * imported, via `run_case(...)`, to run many cases inside one process (used to
-    check that results don't depend on which other cases share a process).
+Imported by test_correctness.py (`run_case(...)`, all cases in the pytest
+process). Also runnable as a script for ad-hoc inspection of one case, printing
+JSON to stdout.
 
 Two input modes:
   * ``basis``: run every computational basis state |k> through the op and return
