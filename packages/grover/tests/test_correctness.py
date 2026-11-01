@@ -26,6 +26,12 @@ For a 3-qubit register (N=8 items, 1 marked item) we:
      "overshoots" if you iterate too many times, which is itself a good
      correctness signal: a broken/no-op circuit could not accidentally
      reproduce that shape).
+  3. Verify `oracle[m]` (all 8 m) and `diffuser` on random product-state
+     superposition inputs as full complex statevectors, up to one global
+     phase, against the exact matrices I - 2|m><m| and 2|s><s| - I. (1)'s
+     input |s> is invariant under the identity and every basis permutation,
+     so (1) alone passes a no-op diffuser, or an oracle with a stray
+     permutation that fixes |m>; mutation-checked that (3) catches both.
 
 Global phase: the full `grover_search` circuit is built from real-valued
 gates (H, X, and a direct multi-controlled Z) but the overall SIGN of the
@@ -82,9 +88,10 @@ from guppylang import guppy
 from guppylang.defs import GuppyFunctionDefinition
 from guppylang.emulator.result import EmulatorResult
 from guppylang.optimizer import OptimizationLevel
+from guppylang.std.angles import angle
 from guppylang.std.builtins import array
 from guppylang.std.debug import state_output
-from guppylang.std.quantum import discard_array, h, qubit
+from guppylang.std.quantum import discard_array, h, qubit, ry, rz
 
 from grover import diffuser, grover_search, oracle, optimal_iterations
 
@@ -276,3 +283,113 @@ def test_direct_multi_controlled_z_matches_ccz() -> None:
     expected = UNIFORM.astype(complex).copy()
     expected[7] *= -1  # true CCZ on |+++> only flips |111>
     np.testing.assert_allclose(v, expected, atol=1e-8)
+
+
+# ---------------------------------------------------------------------------
+# Superposition-input tests: full statevector, up to one global phase.
+#
+# Every test above starts from |s> = H^3|000>. |s> is invariant under the
+# identity and under any basis-state permutation, so on its own it can't tell
+# a correct diffuser from a no-op, or a correct oracle from one with a stray
+# permutation that happens to fix |marked>. Here each op is applied to random
+# product states (per-qubit ry then rz, seeded), the input and output
+# statevectors are both read back, and we check out == e^{i alpha} U_ref @ in
+# against the exact matrix -- the same method as packages/qft's tests.
+# ---------------------------------------------------------------------------
+
+SEEDS = [0, 1, 2]
+STATES_PER_SEED = 4
+S_PROJ = np.outer(UNIFORM, UNIFORM)  # |s><s|
+DIFFUSER_REF = 2 * S_PROJ - np.eye(N)
+
+
+def _oracle_ref(marked: int) -> np.ndarray:
+    ref = np.eye(N, dtype=complex)
+    ref[marked, marked] = -1
+    return ref
+
+
+def assert_equal_up_to_global_phase(
+    actual: np.ndarray, expected: np.ndarray, atol: float = 1e-8
+) -> None:
+    """Assert actual == e^{i alpha} * expected for one global phase alpha.
+
+    Full complex statevector comparison (not probabilities), so any relative
+    phase or amplitude error between basis components fails. Copied from
+    packages/qft's tests (packages don't depend on each other).
+    """
+    overlap = np.vdot(expected, actual)
+    assert abs(overlap) > 1e-12, "states are orthogonal"
+    np.testing.assert_allclose(actual, expected * (overlap / abs(overlap)), atol=atol)
+
+
+def _superposition_pairs(
+    apply: GuppyFunctionDefinition, seed: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Run `apply` (a @guppy fn on array[qubit, 3]) on random product states.
+
+    Returns (input_state, output_state) pairs, both read back from Selene so
+    no numpy model of guppy's ry/rz conventions is needed.
+    """
+    rng = np.random.default_rng(seed)
+    # Angles in half-turns (guppy `angle` units), uniform over a full turn.
+    ys = [float(v) for v in rng.uniform(0.0, 2.0, STATES_PER_SEED * 3)]
+    zs = [float(v) for v in rng.uniform(0.0, 2.0, STATES_PER_SEED * 3)]
+    m = STATES_PER_SEED
+
+    @guppy
+    def main() -> None:
+        ya = array(angle(v) for v in ys)
+        za = array(angle(v) for v in zs)
+        for st in range(m):
+            qs = array(qubit() for _ in range(3))
+            for i in range(3):
+                ry(qs[i], ya[st * 3 + i])
+                rz(qs[i], za[st * 3 + i])
+            state_output("in", qs)
+            apply(qs)
+            state_output("out", qs)
+            discard_array(qs)
+
+    main.check()
+    last_error: OSError | None = None
+    for _attempt in range(3):
+        try:
+            shots: EmulatorResult = (
+                main.with_opt_level(OptimizationLevel.Classical)
+                .emulator(n_qubits=3)
+                .statevector_sim()
+                .with_seed(0)
+                .run()
+            )
+            break
+        except OSError as exc:
+            last_error = exc
+    else:
+        raise AssertionError(f"emulator run failed after retries: {last_error}")
+    (states,) = shots.partial_states()
+    vecs = [partial.as_single_state() for _tag, partial in states]
+    return [(vecs[2 * k], vecs[2 * k + 1]) for k in range(m)]
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+@pytest.mark.parametrize("marked", range(N))
+def test_oracle_on_superposition_inputs(marked: int, seed: int) -> None:
+    @guppy
+    def apply(qs: array[qubit, 3]) -> None:
+        oracle[marked](qs)
+
+    ref = _oracle_ref(marked)
+    for state_in, state_out in _superposition_pairs(apply, seed):
+        assert_equal_up_to_global_phase(state_out, ref @ state_in)
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+def test_diffuser_on_superposition_inputs(seed: int) -> None:
+    @guppy
+    def apply(qs: array[qubit, 3]) -> None:
+        diffuser(qs)
+
+    for state_in, state_out in _superposition_pairs(apply, seed):
+        assert_equal_up_to_global_phase(state_out, DIFFUSER_REF @ state_in)
+

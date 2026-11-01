@@ -39,6 +39,13 @@ Three things are verified, matching the task's explicit requirements:
      valued (H, X, CX -- no rz/rx/ry), only a +-1 sign-flip phase alignment
      is needed (matching qft/grover, not qaoa's general complex alignment
      -- see CLAUDE.md gotcha #18).
+  4. `test_correction_preserves_generic_logical_state`: (3) generalised to
+     random logical states alpha|0> + beta|1> (ry then rz on q0, seeded).
+     (3)'s input (|000> + |111>)/sqrt(2) is invariant under logical X, so on
+     its own it can't catch a decoder that flips the logical qubit; a generic
+     state can, and also checks the relative phase between |000> and |111>
+     for arbitrary complex amplitudes. Compared as full complex statevectors
+     up to one global phase (same method as packages/qft's tests).
 """
 
 import time
@@ -46,6 +53,7 @@ import time
 import numpy as np
 import pytest
 from guppylang import guppy
+from guppylang.std.angles import angle
 from guppylang.std.builtins import array, output
 from guppylang.std.debug import state_output
 from guppylang.std.quantum import (
@@ -54,6 +62,8 @@ from guppylang.std.quantum import (
     h,
     measure_array,
     qubit,
+    ry,
+    rz,
     x,
 )
 
@@ -202,3 +212,72 @@ def test_stabilizer_sim_reproduces_statevector_sim_results() -> None:
     # possible outcomes.
     assert stim_bits == {"000", "111"}
     assert quest_bits == {"000", "111"}
+
+
+SEEDS = [0, 1, 2]
+STATES_PER_SEED = 4
+
+
+def assert_equal_up_to_global_phase(
+    actual: np.ndarray, expected: np.ndarray, atol: float = 1e-8
+) -> None:
+    """Assert actual == e^{i alpha} * expected for one global phase alpha.
+
+    Full complex statevector comparison (not probabilities), so any relative
+    phase or amplitude error between basis components fails. Copied from
+    packages/qft's tests (packages don't depend on each other).
+    """
+    overlap = np.vdot(expected, actual)
+    assert abs(overlap) > 1e-12, "states are orthogonal"
+    np.testing.assert_allclose(actual, expected * (overlap / abs(overlap)), atol=atol)
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+@pytest.mark.parametrize("error_qubit", ERROR_CASES)
+def test_correction_preserves_generic_logical_state(error_qubit: int, seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    m = STATES_PER_SEED
+    # Angles in half-turns (guppy `angle` units), uniform over a full turn.
+    ys = [float(v) for v in rng.uniform(0.0, 2.0, m)]
+    zs = [float(v) for v in rng.uniform(0.0, 2.0, m)]
+
+    @guppy
+    def main() -> None:
+        ya = array(angle(v) for v in ys)
+        za = array(angle(v) for v in zs)
+        for st in range(m):
+            qs = array(qubit() for _ in range(3))
+            ry(qs[0], ya[st])
+            rz(qs[0], za[st])
+            state_output("in", qs)
+            encode(qs[0], qs[1], qs[2])
+            if error_qubit == 0:
+                x(qs[0])
+            if error_qubit == 1:
+                x(qs[1])
+            if error_qubit == 2:
+                x(qs[2])
+            s0, s1 = extract_syndrome(qs[0], qs[1], qs[2])
+            correct(qs[0], qs[1], qs[2], s0, s1)
+            state_output("out", qs)
+            discard_array(qs)
+
+    main.check()
+    # Quest, not Stim: ry/rz at generic angles are non-Clifford.
+    emulator = main.with_minimal_opt().emulator(n_qubits=5).statevector_sim().with_seed(0)
+    shots = _run_with_retry(emulator)
+    (states,) = shots.partial_states()
+    vecs = [partial.as_single_state() for _tag, partial in states]
+    assert len(vecs) == 2 * m
+    for k in range(m):
+        state_in, state_out = vecs[2 * k], vecs[2 * k + 1]
+        # Input is (alpha|0> + beta|1>) on q0 (most significant) with q1=q2=|0>:
+        # only indices 0b000 and 0b100 may be populated.
+        other = np.delete(state_in, [0b000, 0b100])
+        np.testing.assert_allclose(other, 0, atol=1e-8)
+        alpha, beta = state_in[0b000], state_in[0b100]
+        expected = np.zeros(8, dtype=complex)
+        expected[0b000] = alpha
+        expected[0b111] = beta
+        assert_equal_up_to_global_phase(state_out, expected)
+
