@@ -38,9 +38,9 @@ just against the guppy code's own internal consistency.
      `optimize_vqe` run (the real hybrid classical-quantum loop, not a
      shortcut) should land measurably below the Hartree-Fock reference
      energy (-0.5389 Hartree, i.e. `ansatz_circuit` with all parameters at
-     0). Kept small (few shots, few iterations) for the same reason
-     `packages/qaoa`'s equivalent test is kept small -- see CLAUDE.md
-     gotcha #3's VQE update and the note on `DEFAULT_X0` below.
+     0). Budget is shots=2000, maxiter=15, validated to pass for seeds
+     0-9 -- see that test's docstring for why the earlier, smaller budget
+     failed deterministically, and the note on `DEFAULT_X0` below.
   6. `test_ansatz_can_reach_ground_state_given_enough_iterations`: a
      *separate*, larger-budget convergence check using a fast, single-
      circuit-per-evaluation "exact energy" objective (state_output-based,
@@ -263,15 +263,27 @@ def test_estimate_energy_hf_baseline_is_exact_at_zero_shots_noise() -> None:
 
 
 def test_optimize_vqe_lowers_energy_from_hf_baseline() -> None:
-    """A small, live optimize_vqe run -- the actual hybrid classical-quantum
-    loop, not hand-picked constants -- should land measurably below the
-    Hartree-Fock baseline (-0.5389 Hartree). Kept small (few shots, few
-    iterations): see module docstring and CLAUDE.md gotcha #3's VQE
-    update -- this dev machine's transient subprocess-spawn issue compounds
-    with call volume, and each optimizer iteration here costs 5 real
-    circuit runs, not 1."""
+    """A live optimize_vqe run -- the actual hybrid classical-quantum loop,
+    not hand-picked constants -- should land measurably below the
+    Hartree-Fock baseline (-0.5389 Hartree).
+
+    Budget: shots=2000, maxiter=15 (~29 objective evaluations, ~2 min).
+    The previous budget (shots=80, maxiter=8) was simply too small and
+    failed *deterministically* -- not a flake: -0.4768 Hartree on
+    guppylang 1.0.3/selene-sim 0.3.0 and -0.5313 on guppylang 1.2.0/
+    selene-sim 0.3.7, bit-for-bit reproducible run to run, against a
+    required < -0.6889. Even on the exact, noiseless objective, maxiter=8
+    from DEFAULT_X0 only reaches -0.763, leaving no room for shot noise.
+    Shots are nearly free here (more samples from the same simulated
+    statevector: 2000 shots costs ~15% more wall time per evaluation than
+    80), iterations are what cost circuit launches. Validated on the real
+    pipeline (guppylang 1.2.0, selene-sim 0.3.7) for seeds 0-9: all pass,
+    found energies -0.895 to -1.112 Hartree, worst margin 0.21 Hartree
+    (seed 3). If this fails, read the assertion message first: an
+    `OSError ... Application Control policy` is CLAUDE.md gotcha #3's
+    environmental issue; an AssertionError is a real result."""
     hf_energy = _exact_energy([0.0, 0.0, 0.0, 0.0])
-    params, found_energy = optimize_vqe(shots=80, maxiter=8)
+    params, found_energy = optimize_vqe(shots=2000, maxiter=15)
     assert len(params) == N_QUBITS
     assert found_energy < hf_energy - 0.15, (
         f"optimize_vqe found {found_energy}, not clearly better than HF baseline {hf_energy}"
@@ -286,24 +298,20 @@ def test_ansatz_can_reach_ground_state_given_enough_iterations() -> None:
     Does not exercise `estimate_energy`/the measurement pipeline -- that's
     what the tests above are for. See module docstring.
 
-    This and test_optimize_vqe_lowers_energy_from_hf_baseline are, by a wide
-    margin, the two highest-subprocess-spawn-volume tests in this whole
-    registry (dozens of real Selene emulator launches each, even after
-    trimming the optimizer budget down from what would give a tighter
-    result). During this package's development, on this dev machine, both
-    hit CLAUDE.md gotcha #3's transient-block issue *persistently* for an
-    extended stretch -- not the usual "fails once, passes on retry" pattern,
-    but failing consistently across several full re-runs and multiple
-    rounds of reducing the iteration budget, each still exhausting a 10-
-    attempt/6s-backoff retry loop. All 12 other tests in this file, which
-    spawn far fewer subprocesses, passed reliably throughout the same
-    period. If these two are flaking, it's very likely this same known
-    environmental issue, not a real regression -- but if in doubt, verify by
-    running just these two in isolation (`pytest -k "optimize_vqe_lowers or
-    can_reach_ground_state"`) at a quiet moment, or checking that the other
-    12 tests (in particular the exact-statevector and exact-expectation-
-    value ones, which independently verify `ansatz_circuit` and
-    `estimate_energy` against a from-scratch numpy reference) still pass."""
+    This and test_optimize_vqe_lowers_energy_from_hf_baseline are the two
+    highest-subprocess-spawn-volume tests in this registry (dozens of real
+    Selene emulator launches each), so they are the most exposed to CLAUDE.md
+    gotcha #3's transient `WinError 4551` blocks. But an earlier version of
+    this docstring claimed both had failed "persistently" from that
+    environmental issue -- for test_optimize_vqe_lowers_energy_from_hf_baseline
+    that turned out to be wrong: re-checked 2026-11-01, its failures were a
+    deterministic AssertionError from a too-small optimizer budget (see its
+    own docstring), not WinError. So if either test fails, read the actual
+    error first: an `OSError ... Application Control policy` is environmental
+    (rerun); an AssertionError is a real result and must be investigated,
+    not retried away. Independent of either, the exact-statevector and
+    exact-expectation-value tests verify `ansatz_circuit` and
+    `estimate_energy` against a from-scratch numpy reference."""
     from scipy.optimize import minimize
 
     def exact_objective_via_guppy(raw_params: list[float]) -> float:

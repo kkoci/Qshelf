@@ -64,7 +64,7 @@ pip install -e ".[test]"
 pytest tests/ -v
 ```
 
-Expect this to take longer than `packages/qft`/`packages/grover`/`packages/qaoa`'s suites -- several tests run real optimization loops, not single circuit evaluations. Two tests in particular (`test_optimize_vqe_lowers_energy_from_hf_baseline`, `test_ansatz_can_reach_ground_state_given_enough_iterations`) are the highest-subprocess-spawn-volume tests in this entire registry; see their docstrings and CLAUDE.md gotcha #3 if they flake with `OSError: ... Application Control policy ...` (Windows only) -- that's an environmental issue unrelated to correctness.
+Expect this to take longer than `packages/qft`/`packages/grover`/`packages/qaoa`'s suites -- several tests run real optimization loops, not single circuit evaluations. Two tests in particular (`test_optimize_vqe_lowers_energy_from_hf_baseline`, `test_ansatz_can_reach_ground_state_given_enough_iterations`) are the highest-subprocess-spawn-volume tests in this entire registry; if one fails with `OSError: ... Application Control policy ...` (Windows only), that's CLAUDE.md gotcha #3's environmental issue, unrelated to correctness -- but an `AssertionError` is a real result, not a flake (the optimize test's old `shots=80, maxiter=8` budget failed deterministically for exactly that reason; see its docstring).
 
 ## Examples
 
